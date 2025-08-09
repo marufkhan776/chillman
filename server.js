@@ -255,19 +255,24 @@ io.on('connection', (socket) => {
 
   // Video control events (only admin can control)
   socket.on('videoControl', (data) => {
-    const { roomCode, action, time, newVideoURL } = data;
-    
-    if (!rooms[roomCode]) {
-      return;
-    }
+    try {
+      if (!data || !data.roomCode || !data.action) {
+        return;
+      }
+      
+      const { roomCode, action, time, newVideoURL } = data;
+      
+      if (!rooms[roomCode]) {
+        return;
+      }
 
-    const room = rooms[roomCode];
-    
-    // Only admin can control video
-    if (socket.id !== room.adminSocketId) {
-      socket.emit('error', 'Only the room admin can control the video');
-      return;
-    }
+      const room = rooms[roomCode];
+      
+      // Only admin can control video
+      if (socket.id !== room.adminSocketId) {
+        socket.emit('error', 'Only the room admin can control the video');
+        return;
+      }
 
     switch (action) {
       case 'play':
@@ -311,6 +316,10 @@ io.on('connection', (socket) => {
       videoType: room.videoType,
       videoId: room.videoId
     });
+  } catch (error) {
+    console.error('Error in videoControl:', error);
+    socket.emit('error', 'Failed to control video');
+  }
   });
 
   // Handle disconnect

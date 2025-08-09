@@ -56,21 +56,39 @@ function updateRoomStatus(status, type = 'info') {
 }
 
 function updateUserList(users, adminId) {
-    // Clear existing users
-    usersList.innerHTML = '';
-    userCount.textContent = users.length;
-    
-    // Add users
-    users.forEach(user => {
-        const userBadge = document.createElement('div');
-        userBadge.className = `user-badge ${user.id === adminId ? 'admin' : ''}`;
-        userBadge.textContent = user.name + (user.id === adminId ? ' 👑' : '');
-        usersList.appendChild(userBadge);
-    });
+    try {
+        if (!users || !Array.isArray(users)) {
+            console.error('Invalid users data:', users);
+            return;
+        }
+        
+        // Clear existing users
+        usersList.innerHTML = '';
+        userCount.textContent = users.length;
+        
+        // Add users
+        users.forEach(user => {
+            if (user && user.id && user.name) {
+                const userBadge = document.createElement('div');
+                userBadge.className = `user-badge ${user.id === adminId ? 'admin' : ''}`;
+                userBadge.textContent = user.name + (user.id === adminId ? ' 👑' : '');
+                userBadge.title = user.id === adminId ? 'Room Administrator' : 'Room Member';
+                usersList.appendChild(userBadge);
+            }
+        });
+    } catch (error) {
+        console.error('Error updating user list:', error);
+    }
 }
 
 function scrollChatToBottom() {
-    chatMessages.scrollTop = chatMessages.scrollTop + 1000;
+    // Smooth scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Fallback for browsers that don't support scrollHeight properly
+    setTimeout(() => {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }, 100);
 }
 
 function addChatMessage(messageData, isOwn = false) {
@@ -153,7 +171,8 @@ function createYouTubePlayer(videoId) {
         },
         events: {
             onReady: onYouTubePlayerReady,
-            onStateChange: onYouTubePlayerStateChange
+            onStateChange: onYouTubePlayerStateChange,
+            onError: onYouTubePlayerError
         }
     });
 }
@@ -163,24 +182,49 @@ function onYouTubePlayerReady(event) {
     loadingMessage.style.display = 'none';
     youtubePlayerDiv.style.display = 'block';
     
-    // Sync to current time
-    if (currentRoom && currentRoom.currentTime > 0) {
-        youtubePlayer.seekTo(currentRoom.currentTime, true);
-    }
-    
-    // Start playing if room is playing
-    if (currentRoom && currentRoom.isPlaying) {
-        youtubePlayer.playVideo();
+    try {
+        // Sync to current time
+        if (currentRoom && currentRoom.currentTime > 0) {
+            youtubePlayer.seekTo(currentRoom.currentTime, true);
+        }
+        
+        // Start playing if room is playing
+        if (currentRoom && currentRoom.isPlaying) {
+            youtubePlayer.playVideo();
+        }
+    } catch (error) {
+        console.error('Error initializing YouTube player:', error);
+        showToast('Video player initialization failed', 'error');
     }
 }
 
+function onYouTubePlayerError(event) {
+    console.error('YouTube player error:', event.data);
+    loadingMessage.textContent = 'Error loading YouTube video';
+    loadingMessage.style.display = 'block';
+    youtubePlayerDiv.style.display = 'none';
+    
+    const errorMessages = {
+        2: 'Invalid video ID',
+        5: 'HTML5 player error',
+        100: 'Video not found or private',
+        101: 'Video not allowed to be played in embedded players',
+        150: 'Video not allowed to be played in embedded players'
+    };
+    
+    const errorMessage = errorMessages[event.data] || 'Unknown video error';
+    showToast(`Video Error: ${errorMessage}`, 'error');
+}
+
+let isPlayerSyncing = false; // Flag to prevent sync loops
+
 function onYouTubePlayerStateChange(event) {
-    if (!isAdmin || !socket || !currentRoom) return;
+    if (!isAdmin || !socket || !currentRoom || isPlayerSyncing) return;
     
     const state = event.data;
     const currentTime = youtubePlayer.getCurrentTime();
     
-    // Only send control events if admin initiated the change
+    // Only send control events if admin initiated the change (not programmatic sync)
     if (state === YT.PlayerState.PLAYING) {
         socket.emit('videoControl', {
             roomCode: currentRoom.roomCode,
@@ -197,6 +241,8 @@ function onYouTubePlayerStateChange(event) {
 }
 
 // Drive player functions
+let isDrivePlayerSyncing = false; // Flag to prevent Drive player event loops
+
 function setupDrivePlayer(videoUrl) {
     drivePlayer = drivePlayerElement;
     drivePlayer.src = videoUrl;
@@ -218,29 +264,44 @@ function setupDrivePlayer(videoUrl) {
     // Add event listeners for admin
     if (isAdmin && socket && currentRoom) {
         drivePlayer.addEventListener('play', () => {
-            socket.emit('videoControl', {
-                roomCode: currentRoom.roomCode,
-                action: 'play',
-                time: drivePlayer.currentTime
-            });
+            if (!isDrivePlayerSyncing) {
+                socket.emit('videoControl', {
+                    roomCode: currentRoom.roomCode,
+                    action: 'play',
+                    time: drivePlayer.currentTime
+                });
+            }
         });
         
         drivePlayer.addEventListener('pause', () => {
-            socket.emit('videoControl', {
-                roomCode: currentRoom.roomCode,
-                action: 'pause',
-                time: drivePlayer.currentTime
-            });
+            if (!isDrivePlayerSyncing) {
+                socket.emit('videoControl', {
+                    roomCode: currentRoom.roomCode,
+                    action: 'pause',
+                    time: drivePlayer.currentTime
+                });
+            }
         });
         
         drivePlayer.addEventListener('seeked', () => {
-            socket.emit('videoControl', {
-                roomCode: currentRoom.roomCode,
-                action: 'seek',
-                time: drivePlayer.currentTime
-            });
+            if (!isDrivePlayerSyncing) {
+                socket.emit('videoControl', {
+                    roomCode: currentRoom.roomCode,
+                    action: 'seek',
+                    time: drivePlayer.currentTime
+                });
+            }
         });
     }
+    
+    // Add error handling for Drive player
+    drivePlayer.addEventListener('error', (e) => {
+        console.error('Drive player error:', e);
+        loadingMessage.textContent = 'Error loading Google Drive video';
+        loadingMessage.style.display = 'block';
+        drivePlayer.style.display = 'none';
+        showToast('Failed to load Google Drive video. Please check if the video is publicly accessible.', 'error');
+    });
     
     // Sync to current time
     drivePlayer.addEventListener('loadedmetadata', () => {
@@ -288,6 +349,9 @@ function syncYouTubePlayer(action, currentTime, isPlaying) {
             return;
         }
         
+        // Set sync flag to prevent event loops
+        isPlayerSyncing = true;
+        
         const playerTime = youtubePlayer.getCurrentTime();
         const timeDiff = Math.abs(playerTime - currentTime);
         
@@ -302,8 +366,14 @@ function syncYouTubePlayer(action, currentTime, isPlaying) {
         } else if (action === 'pause' || (!isPlaying && youtubePlayer.getPlayerState() === YT.PlayerState.PLAYING)) {
             youtubePlayer.pauseVideo();
         }
+        
+        // Clear sync flag after a delay
+        setTimeout(() => {
+            isPlayerSyncing = false;
+        }, 1000);
     } catch (error) {
         console.error('Error syncing YouTube player:', error);
+        isPlayerSyncing = false;
     }
 }
 
@@ -311,6 +381,9 @@ function syncDrivePlayer(action, currentTime, isPlaying) {
     if (!drivePlayer || drivePlayer.readyState < 1) return;
     
     try {
+        // Set sync flag to prevent event loops
+        isDrivePlayerSyncing = true;
+        
         const playerTime = drivePlayer.currentTime;
         const timeDiff = Math.abs(playerTime - currentTime);
         
@@ -328,22 +401,45 @@ function syncDrivePlayer(action, currentTime, isPlaying) {
         } else if (action === 'pause' || (!isPlaying && !drivePlayer.paused)) {
             drivePlayer.pause();
         }
+        
+        // Clear sync flag after a delay
+        setTimeout(() => {
+            isDrivePlayerSyncing = false;
+        }, 1000);
     } catch (error) {
         console.error('Error syncing Drive player:', error);
+        isDrivePlayerSyncing = false;
     }
 }
 
 function loadVideo(videoType, videoId) {
-    // Hide all players
-    youtubePlayerDiv.style.display = 'none';
-    drivePlayer.style.display = 'none';
-    loadingMessage.style.display = 'block';
-    loadingMessage.textContent = 'Loading new video...';
-    
-    if (videoType === 'youtube') {
-        createYouTubePlayer(videoId);
-    } else if (videoType === 'drive') {
-        setupDrivePlayer(videoId);
+    try {
+        // Hide all players
+        youtubePlayerDiv.style.display = 'none';
+        drivePlayer.style.display = 'none';
+        loadingMessage.style.display = 'block';
+        loadingMessage.textContent = 'Loading video...';
+        
+        if (!videoId) {
+            throw new Error('Invalid video ID');
+        }
+        
+        if (videoType === 'youtube') {
+            createYouTubePlayer(videoId);
+        } else if (videoType === 'drive') {
+            setupDrivePlayer(videoId);
+        } else {
+            throw new Error('Unsupported video type');
+        }
+    } catch (error) {
+        console.error('Error loading video:', error);
+        loadingMessage.textContent = 'Error loading video. Please try again.';
+        showToast('Failed to load video', 'error');
+        
+        // Hide loading message after 3 seconds
+        setTimeout(() => {
+            loadingMessage.style.display = 'none';
+        }, 3000);
     }
 }
 
@@ -438,9 +534,9 @@ function initializeSocket() {
     });
     
     socket.on('videoSync', (data) => {
-        if (!isAdmin) { // Only non-admins should sync to events
-            syncVideoState(data);
-        }
+        // All users should sync, but admins should not sync to their own events
+        // We'll handle this prevention in the sync functions with flags
+        syncVideoState(data);
     });
     
     socket.on('newAdmin', (newAdminId) => {
@@ -540,14 +636,33 @@ joinRoomWithNameBtn.addEventListener('click', () => {
         return;
     }
     
+    if (username.length > 20) {
+        showToast('Name must be 20 characters or less', 'error');
+        return;
+    }
+    
+    if (username.length < 2) {
+        showToast('Name must be at least 2 characters', 'error');
+        return;
+    }
+    
+    // Basic sanitization - allow letters, numbers, spaces, and basic punctuation
+    if (!/^[a-zA-Z0-9\s\-_.]+$/.test(username)) {
+        showToast('Name can only contain letters, numbers, spaces, and basic punctuation', 'error');
+        return;
+    }
+    
     joinRoom(username);
 });
 
 usernameInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         const username = usernameInput.value.trim();
-        if (username) {
+        if (username && username.length >= 2 && username.length <= 20 && /^[a-zA-Z0-9\s\-_.]+$/.test(username)) {
             joinRoom(username);
+        } else {
+            // Trigger the button click to show proper validation messages
+            joinRoomWithNameBtn.click();
         }
     }
 });
@@ -595,7 +710,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // Periodic sync for video time (to handle manual seeking by admin)
-setInterval(() => {
+let syncInterval = setInterval(() => {
     if (isAdmin && socket && socket.connected && currentRoom) {
         let currentTime = 0;
         
@@ -620,3 +735,10 @@ setInterval(() => {
         }
     }
 }, 2000); // Check every 2 seconds
+
+// Clean up interval on page unload
+window.addEventListener('beforeunload', () => {
+    if (syncInterval) {
+        clearInterval(syncInterval);
+    }
+});
