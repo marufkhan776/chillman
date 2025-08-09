@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WatchTogether – Room</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="room-container">
+    <header>
+      <h1 id="roomTitle">Room</h1>
+      <button id="copyLinkBtn">Copy Room Link</button>
+    </header>
+
+    <main class="content">
+      <div class="video-section">
+        <!-- Video player (YouTube iframe or HTML5 video) will be injected here -->
+        <div id="playerContainer" class="player-placeholder"></div>
+
+        <!-- Admin-only: change video URL -->
+        <div id="changeVideoSection" class="change-video hidden">
+          <input type="text" id="newVideoURL" placeholder="New video URL" />
+          <button id="changeVideoBtn">Change Video</button>
+        </div>
+      </div>
+
+      <aside class="chat-section">
+        <h3>Users</h3>
+        <ul id="userList"></ul>
+
+        <h3>Chat</h3>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input">
+          <input type="text" id="chatInput" placeholder="Type a message..." />
+          <button id="sendChatBtn">Send</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Socket.IO client -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- YouTube IFrame API will be loaded dynamically in room.js -->
+  <script src="room.js"></script>
+</body>
+</html>

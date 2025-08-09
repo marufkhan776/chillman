@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WatchTogether</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">WatchTogether</h1>
+
+    <div class="card" id="createSection">
+      <h2>Create Room</h2>
+      <input type="text" id="createUsername" placeholder="Your name" />
+      <input type="text" id="videoURL" placeholder="YouTube or Google Drive video link" />
+      <button id="createBtn">Create</button>
+      <p class="error" id="createError"></p>
+    </div>
+
+    <div class="divider"><span>OR</span></div>
+
+    <div class="card" id="joinSection">
+      <h2>Join Room</h2>
+      <input type="text" id="joinUsername" placeholder="Your name" />
+      <input type="text" id="roomCode" placeholder="Room code" />
+      <button id="joinBtn">Join</button>
+      <p class="error" id="joinError"></p>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
