@@ -25,8 +25,14 @@ const roomCode = qs('room');
 // Retrieve saved credentials for this room from localStorage (if any)
 const saved = roomCode ? JSON.parse(localStorage.getItem(`wt_${roomCode}`) || 'null') : null;
 
+const adminParam = qs('admin');
 let username = qs('username') || (saved && saved.username) || 'Anonymous';
-let isAdmin = qs('admin') === '1' || (saved && saved.isAdmin);
+let isAdmin;
+if (adminParam === '1' || adminParam === '0') {
+  isAdmin = adminParam === '1';
+} else {
+  isAdmin = saved ? saved.isAdmin : false;
+}
 
 // Persist (or update) into storage so that refresh retains identity
 if (roomCode) {
@@ -93,10 +99,12 @@ socket.on('videoControl', ({ action, currentTime, videoURL, adminId }) => {
   isRemoteUpdate = true;
   switch (action) {
     case 'play':
+      if (typeof currentTime === 'number') seekTo(currentTime);
       if (isYouTubeLink(currentVideoURL)) player.playVideo();
       else player.play();
       break;
     case 'pause':
+      if (typeof currentTime === 'number') seekTo(currentTime);
       if (isYouTubeLink(currentVideoURL)) player.pauseVideo();
       else player.pause();
       break;
@@ -191,10 +199,10 @@ function loadVideo(url, callback) {
 
     if (isAdmin) {
       videoElm.addEventListener('play', () => {
-        if (!isRemoteUpdate) socket.emit('videoControl', { roomCode, action: 'play' });
+        if (!isRemoteUpdate) socket.emit('videoControl', { roomCode, action: 'play', currentTime: videoElm.currentTime });
       });
       videoElm.addEventListener('pause', () => {
-        if (!isRemoteUpdate) socket.emit('videoControl', { roomCode, action: 'pause' });
+        if (!isRemoteUpdate) socket.emit('videoControl', { roomCode, action: 'pause', currentTime: videoElm.currentTime });
       });
       videoElm.addEventListener('seeked', () => {
         if (!isRemoteUpdate) socket.emit('videoControl', { roomCode, action: 'seek', currentTime: videoElm.currentTime });
@@ -224,10 +232,10 @@ function createYouTubePlayer(videoId, callback) {
         if (!isAdmin || isRemoteUpdate) return;
         switch (event.data) {
           case YT.PlayerState.PLAYING:
-            socket.emit('videoControl', { roomCode, action: 'play' });
+            socket.emit('videoControl', { roomCode, action: 'play', currentTime: player.getCurrentTime() });
             break;
           case YT.PlayerState.PAUSED:
-            socket.emit('videoControl', { roomCode, action: 'pause' });
+            socket.emit('videoControl', { roomCode, action: 'pause', currentTime: player.getCurrentTime() });
             break;
         }
       }

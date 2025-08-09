@@ -126,9 +126,11 @@ io.on('connection', (socket) => {
     switch (action) {
       case 'play':
         room.isPlaying = true;
+        if (typeof currentTime === 'number') room.currentTime = currentTime;
         break;
       case 'pause':
         room.isPlaying = false;
+        if (typeof currentTime === 'number') room.currentTime = currentTime;
         break;
       case 'seek':
         room.currentTime = currentTime;
