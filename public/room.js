@@ -21,8 +21,17 @@ function extractYouTubeID(url) {
 // Global state
 //--------------------------------------------------
 const roomCode = qs('room');
-const username = qs('username') || 'Anonymous';
-const isAdmin = qs('admin') === '1';
+
+// Retrieve saved credentials for this room from localStorage (if any)
+const saved = roomCode ? JSON.parse(localStorage.getItem(`wt_${roomCode}`) || 'null') : null;
+
+let username = qs('username') || (saved && saved.username) || 'Anonymous';
+let isAdmin = qs('admin') === '1' || (saved && saved.isAdmin);
+
+// Persist (or update) into storage so that refresh retains identity
+if (roomCode) {
+  localStorage.setItem(`wt_${roomCode}`, JSON.stringify({ username, isAdmin }));
+}
 
 const socket = io();
 let player; // YouTube player or HTML5 video element
@@ -55,7 +64,7 @@ if (isAdmin) {
 
 // Copy room link to clipboard
 copyLinkBtn.addEventListener('click', () => {
-  const link = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+  const link = `${window.location.origin}${window.location.pathname}?room=${roomCode}&username=${encodeURIComponent(username)}&admin=${isAdmin ? '1' : '0'}`;
   navigator.clipboard.writeText(link).then(() => {
     copyLinkBtn.textContent = 'Copied!';
     setTimeout(() => (copyLinkBtn.textContent = 'Copy Room Link'), 1500);
