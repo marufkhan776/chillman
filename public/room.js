@@ -92,22 +92,34 @@ function scrollChatToBottom() {
 }
 
 function addChatMessage(messageData, isOwn = false) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
-    
-    const messageInfo = document.createElement('div');
-    messageInfo.className = 'message-info';
-    messageInfo.textContent = `${messageData.username} • ${messageData.timestamp}`;
-    
-    const messageText = document.createElement('div');
-    messageText.className = 'message-text';
-    messageText.textContent = messageData.message;
-    
-    messageDiv.appendChild(messageInfo);
-    messageDiv.appendChild(messageText);
-    chatMessages.appendChild(messageDiv);
-    
-    scrollChatToBottom();
+    try {
+        if (!messageData || !messageData.username || !messageData.message) {
+            console.error('Invalid message data:', messageData);
+            return;
+        }
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
+        
+        const messageInfo = document.createElement('div');
+        messageInfo.className = 'message-info';
+        messageInfo.textContent = `${messageData.username} • ${messageData.timestamp || 'now'}`;
+        
+        const messageText = document.createElement('div');
+        messageText.className = 'message-text';
+        // Sanitize message text to prevent XSS
+        messageText.textContent = messageData.message.substring(0, 500);
+        
+        messageDiv.appendChild(messageInfo);
+        messageDiv.appendChild(messageText);
+        
+        if (chatMessages) {
+            chatMessages.appendChild(messageDiv);
+            scrollChatToBottom();
+        }
+    } catch (error) {
+        console.error('Error adding chat message:', error);
+    }
 }
 
 function copyRoomLink() {
@@ -152,8 +164,18 @@ function onYouTubeIframeAPIReady() {
 }
 
 function createYouTubePlayer(videoId) {
-    if (youtubePlayer) {
-        youtubePlayer.destroy();
+    try {
+        if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
+            youtubePlayer.destroy();
+        }
+    } catch (error) {
+        console.warn('Error destroying previous YouTube player:', error);
+    }
+    
+    if (typeof YT === 'undefined' || !YT.Player) {
+        console.error('YouTube API not loaded');
+        showToast('YouTube player unavailable', 'error');
+        return;
     }
     
     youtubePlayer = new YT.Player('youtubePlayer', {
@@ -242,15 +264,18 @@ function onYouTubePlayerStateChange(event) {
 
 // Drive player functions
 let isDrivePlayerSyncing = false; // Flag to prevent Drive player event loops
+let drivePlayerListeners = []; // Keep track of event listeners for cleanup
 
 function setupDrivePlayer(videoUrl) {
     drivePlayer = drivePlayerElement;
-    drivePlayer.src = videoUrl;
     
-    // Remove all previous event listeners
-    const newPlayer = drivePlayer.cloneNode(true);
-    drivePlayer.parentNode.replaceChild(newPlayer, drivePlayer);
-    drivePlayer = newPlayer;
+    // Clean up previous listeners
+    drivePlayerListeners.forEach(({ event, handler }) => {
+        drivePlayer.removeEventListener(event, handler);
+    });
+    drivePlayerListeners = [];
+    
+    drivePlayer.src = videoUrl;
     
     loadingMessage.style.display = 'none';
     drivePlayer.style.display = 'block';
@@ -261,9 +286,15 @@ function setupDrivePlayer(videoUrl) {
         drivePlayer.style.pointerEvents = 'none';
     }
     
+    // Helper function to add tracked event listeners
+    const addTrackedListener = (event, handler) => {
+        drivePlayer.addEventListener(event, handler);
+        drivePlayerListeners.push({ event, handler });
+    };
+    
     // Add event listeners for admin
     if (isAdmin && socket && currentRoom) {
-        drivePlayer.addEventListener('play', () => {
+        const playHandler = () => {
             if (!isDrivePlayerSyncing) {
                 socket.emit('videoControl', {
                     roomCode: currentRoom.roomCode,
@@ -271,9 +302,9 @@ function setupDrivePlayer(videoUrl) {
                     time: drivePlayer.currentTime
                 });
             }
-        });
+        };
         
-        drivePlayer.addEventListener('pause', () => {
+        const pauseHandler = () => {
             if (!isDrivePlayerSyncing) {
                 socket.emit('videoControl', {
                     roomCode: currentRoom.roomCode,
@@ -281,9 +312,9 @@ function setupDrivePlayer(videoUrl) {
                     time: drivePlayer.currentTime
                 });
             }
-        });
+        };
         
-        drivePlayer.addEventListener('seeked', () => {
+        const seekHandler = () => {
             if (!isDrivePlayerSyncing) {
                 socket.emit('videoControl', {
                     roomCode: currentRoom.roomCode,
@@ -291,20 +322,24 @@ function setupDrivePlayer(videoUrl) {
                     time: drivePlayer.currentTime
                 });
             }
-        });
+        };
+        
+        addTrackedListener('play', playHandler);
+        addTrackedListener('pause', pauseHandler);
+        addTrackedListener('seeked', seekHandler);
     }
     
     // Add error handling for Drive player
-    drivePlayer.addEventListener('error', (e) => {
+    const errorHandler = (e) => {
         console.error('Drive player error:', e);
         loadingMessage.textContent = 'Error loading Google Drive video';
         loadingMessage.style.display = 'block';
         drivePlayer.style.display = 'none';
         showToast('Failed to load Google Drive video. Please check if the video is publicly accessible.', 'error');
-    });
+    };
     
     // Sync to current time
-    drivePlayer.addEventListener('loadedmetadata', () => {
+    const metadataHandler = () => {
         if (currentRoom && currentRoom.currentTime > 0) {
             drivePlayer.currentTime = currentRoom.currentTime;
         }
@@ -316,7 +351,10 @@ function setupDrivePlayer(videoUrl) {
                 showToast('Click to start the video', 'info');
             });
         }
-    });
+    };
+    
+    addTrackedListener('error', errorHandler);
+    addTrackedListener('loadedmetadata', metadataHandler);
 }
 
 // Video sync functions
@@ -457,8 +495,16 @@ function sendMessage() {
 }
 
 // Socket.IO functions
+let isSocketInitialized = false;
+
 function initializeSocket() {
+    if (isSocketInitialized) {
+        console.log('Socket already initialized');
+        return;
+    }
+    
     socket = io();
+    isSocketInitialized = true;
     
     socket.on('connect', () => {
         console.log('Connected to server');
@@ -505,6 +551,7 @@ function initializeSocket() {
             adminControls.style.display = 'flex';
             nonAdminMessage.style.display = 'none';
             showToast('You are the room admin!', 'success');
+            startPeriodicSync(); // Start periodic sync for admin
         } else {
             adminControls.style.display = 'none';
             nonAdminMessage.style.display = 'flex';
@@ -546,6 +593,7 @@ function initializeSocket() {
             adminControls.style.display = 'flex';
             nonAdminMessage.style.display = 'none';
             showToast('You are now the room admin!', 'success');
+            startPeriodicSync(); // Start periodic sync for new admin
             
             // Re-enable video controls
             if (youtubePlayer) {
@@ -710,35 +758,44 @@ window.addEventListener('beforeunload', () => {
 });
 
 // Periodic sync for video time (to handle manual seeking by admin)
-let syncInterval = setInterval(() => {
-    if (isAdmin && socket && socket.connected && currentRoom) {
-        let currentTime = 0;
-        
-        try {
-            if (youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function') {
-                currentTime = youtubePlayer.getCurrentTime() || 0;
-            } else if (drivePlayer && !drivePlayer.paused && !isNaN(drivePlayer.currentTime)) {
-                currentTime = drivePlayer.currentTime;
-            }
-            
-            // Only sync if there's a significant time change and time is valid
-            if (currentTime > 0 && Math.abs(currentTime - lastKnownTime) > 1) {
-                socket.emit('videoControl', {
-                    roomCode: currentRoom.roomCode,
-                    action: 'seek',
-                    time: currentTime
-                });
-                lastKnownTime = currentTime;
-            }
-        } catch (error) {
-            console.error('Error in periodic sync:', error);
-        }
+let syncInterval = null;
+
+function startPeriodicSync() {
+    if (syncInterval) {
+        clearInterval(syncInterval);
     }
-}, 2000); // Check every 2 seconds
+    
+    syncInterval = setInterval(() => {
+        if (isAdmin && socket && socket.connected && currentRoom) {
+            let currentTime = 0;
+            
+            try {
+                if (youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function') {
+                    currentTime = youtubePlayer.getCurrentTime() || 0;
+                } else if (drivePlayer && !drivePlayer.paused && !isNaN(drivePlayer.currentTime)) {
+                    currentTime = drivePlayer.currentTime;
+                }
+                
+                // Only sync if there's a significant time change and time is valid
+                if (currentTime > 0 && Math.abs(currentTime - lastKnownTime) > 1) {
+                    socket.emit('videoControl', {
+                        roomCode: currentRoom.roomCode,
+                        action: 'seek',
+                        time: currentTime
+                    });
+                    lastKnownTime = currentTime;
+                }
+            } catch (error) {
+                console.error('Error in periodic sync:', error);
+            }
+        }
+    }, 2000); // Check every 2 seconds
+}
 
 // Clean up interval on page unload
 window.addEventListener('beforeunload', () => {
     if (syncInterval) {
         clearInterval(syncInterval);
+        syncInterval = null;
     }
 });

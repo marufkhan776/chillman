@@ -13,15 +13,86 @@ const io = socketIo(server, {
 });
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
+
+// Simple rate limiting
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 30;
+
+function rateLimit(req, res, next) {
+  const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  
+  if (!rateLimitMap.has(clientIp)) {
+    rateLimitMap.set(clientIp, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return next();
+  }
+  
+  const clientData = rateLimitMap.get(clientIp);
+  
+  if (now > clientData.resetTime) {
+    clientData.count = 1;
+    clientData.resetTime = now + RATE_LIMIT_WINDOW;
+    return next();
+  }
+  
+  if (clientData.count >= MAX_REQUESTS_PER_WINDOW) {
+    return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+  }
+  
+  clientData.count++;
+  next();
+}
+
+// Apply rate limiting to API endpoints
+app.use('/create-room', rateLimit);
+app.use('/join-room', rateLimit);
 
 // In-memory room storage
 const rooms = {};
 
+// Clean up rate limit map periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of rateLimitMap.entries()) {
+    if (now > data.resetTime) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}, RATE_LIMIT_WINDOW);
+
+// Clean up stale rooms periodically (rooms older than 24 hours with no users)
+setInterval(() => {
+  const now = Date.now();
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+  
+  for (const [roomCode, room] of Object.entries(rooms)) {
+    if (room.users.length === 0 && (now - room.createdAt.getTime()) > maxAge) {
+      delete rooms[roomCode];
+      console.log(`Cleaned up stale room: ${roomCode}`);
+    }
+  }
+}, 60 * 60 * 1000); // Check every hour
+
 // Helper function to generate random room code
 function generateRoomCode() {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+  let code;
+  let attempts = 0;
+  const maxAttempts = 10;
+  
+  do {
+    code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    attempts++;
+  } while (rooms[code] && attempts < maxAttempts);
+  
+  // If we can't generate a unique code after 10 attempts, add timestamp
+  if (rooms[code]) {
+    code = (Math.random().toString(36).substring(2, 8) + Date.now().toString(36)).toUpperCase().substring(0, 6);
+  }
+  
+  return code;
 }
 
 // Helper function to extract video ID from YouTube URL
@@ -33,7 +104,11 @@ function getYouTubeVideoId(url) {
 
 // Helper function to check if URL is a Google Drive video
 function isGoogleDriveVideo(url) {
-  return url.includes('drive.google.com') && (url.includes('/file/d/') || url.includes('id='));
+  return url.includes('drive.google.com') && 
+         (url.includes('/file/d/') || 
+          url.includes('id=') || 
+          url.includes('open?id=') ||
+          url.includes('/d/'));
 }
 
 // Helper function to convert Google Drive URL to direct video URL
@@ -77,6 +152,10 @@ app.post('/create-room', (req, res) => {
   if (!videoURL) {
     return res.status(400).json({ error: 'Video URL is required' });
   }
+  
+  if (typeof videoURL !== 'string' || videoURL.length > 2000) {
+    return res.status(400).json({ error: 'Video URL is invalid or too long' });
+  }
 
   // Validate video URL
   const youtubeId = getYouTubeVideoId(videoURL);
@@ -114,6 +193,10 @@ app.post('/join-room', (req, res) => {
   
   if (!roomCode) {
     return res.status(400).json({ error: 'Room code is required' });
+  }
+  
+  if (typeof roomCode !== 'string' || roomCode.length !== 6 || !/^[A-Z0-9]+$/.test(roomCode)) {
+    return res.status(400).json({ error: 'Invalid room code format' });
   }
 
   if (!rooms[roomCode]) {
@@ -323,32 +406,47 @@ io.on('connection', (socket) => {
   });
 
   // Handle disconnect
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
+  socket.on('disconnect', (reason) => {
+    console.log(`User disconnected: ${socket.id}, reason: ${reason}`);
     
-    if (socket.roomCode && rooms[socket.roomCode]) {
-      const room = rooms[socket.roomCode];
-      
-      // Remove user from room
-      room.users = room.users.filter(user => user.id !== socket.id);
-      
-      // If admin left, assign new admin
-      if (socket.id === room.adminSocketId && room.users.length > 0) {
-        room.adminSocketId = room.users[0].id;
-        io.to(socket.roomCode).emit('newAdmin', room.adminSocketId);
+    try {
+      if (socket.roomCode && rooms[socket.roomCode]) {
+        const room = rooms[socket.roomCode];
+        const wasAdmin = socket.id === room.adminSocketId;
+        
+        // Remove user from room
+        const initialUserCount = room.users.length;
+        room.users = room.users.filter(user => user.id !== socket.id);
+        
+        // Verify user was actually removed
+        if (room.users.length === initialUserCount) {
+          console.log(`Warning: User ${socket.id} was not in room ${socket.roomCode} user list`);
+          return;
+        }
+        
+        console.log(`User removed from room ${socket.roomCode}. Remaining users: ${room.users.length}`);
+        
+        // If admin left, assign new admin
+        if (wasAdmin && room.users.length > 0) {
+          room.adminSocketId = room.users[0].id;
+          console.log(`New admin assigned in room ${socket.roomCode}: ${room.adminSocketId}`);
+          io.to(socket.roomCode).emit('newAdmin', room.adminSocketId);
+        }
+        
+        // If no users left, delete room
+        if (room.users.length === 0) {
+          delete rooms[socket.roomCode];
+          console.log(`Room ${socket.roomCode} deleted - no users remaining`);
+        } else {
+          // Update user list for remaining users
+          io.to(socket.roomCode).emit('userListUpdate', {
+            users: room.users,
+            adminId: room.adminSocketId
+          });
+        }
       }
-      
-      // If no users left, delete room
-      if (room.users.length === 0) {
-        delete rooms[socket.roomCode];
-        console.log(`Room ${socket.roomCode} deleted - no users remaining`);
-      } else {
-        // Update user list for remaining users
-        io.to(socket.roomCode).emit('userListUpdate', {
-          users: room.users,
-          adminId: room.adminSocketId
-        });
-      }
+    } catch (error) {
+      console.error('Error handling disconnect:', error);
     }
   });
 });

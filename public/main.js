@@ -294,15 +294,21 @@ window.addEventListener('load', () => {
     const roomCodeFromURL = urlParams.get('room');
     
     if (roomCodeFromURL) {
-        roomCodeInput.value = roomCodeFromURL.toUpperCase();
-        // Auto-focus the join button
-        joinRoomBtn.scrollIntoView({ behavior: 'smooth' });
+        // Sanitize and validate room code
+        const sanitizedCode = roomCodeFromURL.replace(/[^A-Z0-9]/g, '').substring(0, 6).toUpperCase();
+        if (sanitizedCode.length === 6) {
+            roomCodeInput.value = sanitizedCode;
+            // Auto-focus the join button
+            joinRoomBtn.scrollIntoView({ behavior: 'smooth' });
+        }
     }
     
     // Check if user was redirected from a room (with error)
     const error = urlParams.get('error');
     if (error) {
-        showError(decodeURIComponent(error));
+        // Sanitize error message to prevent XSS
+        const sanitizedError = decodeURIComponent(error).replace(/<[^>]*>/g, '').substring(0, 200);
+        showError(sanitizedError);
     }
 });
 
