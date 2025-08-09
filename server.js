@@ -40,13 +40,25 @@ function isGoogleDriveVideo(url) {
 function getGoogleDriveDirectUrl(url) {
   let fileId = '';
   
-  if (url.includes('/file/d/')) {
-    fileId = url.split('/file/d/')[1].split('/')[0];
-  } else if (url.includes('id=')) {
-    fileId = url.split('id=')[1].split('&')[0];
+  try {
+    if (url.includes('/file/d/')) {
+      fileId = url.split('/file/d/')[1].split('/')[0];
+    } else if (url.includes('id=')) {
+      fileId = url.split('id=')[1].split('&')[0];
+    } else if (url.includes('open?id=')) {
+      fileId = url.split('open?id=')[1].split('&')[0];
+    }
+    
+    // Clean up any query parameters from fileId
+    if (fileId.includes('?')) {
+      fileId = fileId.split('?')[0];
+    }
+    
+    return fileId ? `https://drive.google.com/file/d/${fileId}/preview` : null;
+  } catch (error) {
+    console.error('Error parsing Google Drive URL:', error);
+    return null;
   }
-  
-  return fileId ? `https://drive.google.com/file/d/${fileId}/preview` : null;
 }
 
 // Routes
@@ -138,9 +150,20 @@ app.get('/api/room/:roomCode', (req, res) => {
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
+  // Error handling for socket
+  socket.on('error', (error) => {
+    console.error('Socket error:', error);
+  });
+
   // Join room event
   socket.on('joinRoom', (data) => {
-    const { roomCode, username } = data;
+    try {
+      if (!data || !data.roomCode) {
+        socket.emit('error', 'Invalid room data');
+        return;
+      }
+      
+      const { roomCode, username } = data;
     
     if (!rooms[roomCode]) {
       socket.emit('error', 'Room not found');
@@ -183,32 +206,51 @@ io.on('connection', (socket) => {
       users: room.users,
       adminId: room.adminSocketId
     });
+  } catch (error) {
+    console.error('Error in joinRoom:', error);
+    socket.emit('error', 'Failed to join room');
+  }
   });
 
   // Chat message event
   socket.on('chatMessage', (data) => {
-    const { roomCode, message } = data;
-    
-    if (!rooms[roomCode]) {
-      return;
+    try {
+      if (!data || !data.roomCode || !data.message) {
+        return;
+      }
+      
+      const { roomCode, message } = data;
+      
+      if (!rooms[roomCode]) {
+        return;
+      }
+
+      const room = rooms[roomCode];
+      const user = room.users.find(u => u.id === socket.id);
+      
+      if (!user) {
+        return;
+      }
+
+      // Sanitize message (basic)
+      const sanitizedMessage = message.trim().substring(0, 500);
+      
+      if (!sanitizedMessage) {
+        return;
+      }
+
+      const chatMessage = {
+        id: Date.now(),
+        username: user.name,
+        message: sanitizedMessage,
+        timestamp: new Date().toLocaleTimeString()
+      };
+
+      // Broadcast message to all users in room
+      io.to(roomCode).emit('newChatMessage', chatMessage);
+    } catch (error) {
+      console.error('Error in chatMessage:', error);
     }
-
-    const room = rooms[roomCode];
-    const user = room.users.find(u => u.id === socket.id);
-    
-    if (!user) {
-      return;
-    }
-
-    const chatMessage = {
-      id: Date.now(),
-      username: user.name,
-      message: message,
-      timestamp: new Date().toLocaleTimeString()
-    };
-
-    // Broadcast message to all users in room
-    io.to(roomCode).emit('newChatMessage', chatMessage);
   });
 
   // Video control events (only admin can control)

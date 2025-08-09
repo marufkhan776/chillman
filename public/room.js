@@ -279,21 +279,27 @@ function syncVideoState(data) {
 }
 
 function syncYouTubePlayer(action, currentTime, isPlaying) {
-    if (!youtubePlayer || youtubePlayer.getPlayerState === undefined) return;
+    if (!youtubePlayer || typeof youtubePlayer.getPlayerState !== 'function') return;
     
     try {
+        // Ensure player is ready
+        if (youtubePlayer.getPlayerState() === -1) {
+            setTimeout(() => syncYouTubePlayer(action, currentTime, isPlaying), 500);
+            return;
+        }
+        
         const playerTime = youtubePlayer.getCurrentTime();
         const timeDiff = Math.abs(playerTime - currentTime);
         
-        // Seek if time difference is significant (more than 2 seconds)
-        if (timeDiff > 2) {
+        // Handle specific actions
+        if (action === 'seek' || timeDiff > 2) {
             youtubePlayer.seekTo(currentTime, true);
         }
         
-        // Handle play/pause
-        if (isPlaying && youtubePlayer.getPlayerState() !== YT.PlayerState.PLAYING) {
+        // Handle play/pause with debouncing to prevent conflicts
+        if (action === 'play' || (isPlaying && youtubePlayer.getPlayerState() !== YT.PlayerState.PLAYING)) {
             youtubePlayer.playVideo();
-        } else if (!isPlaying && youtubePlayer.getPlayerState() === YT.PlayerState.PLAYING) {
+        } else if (action === 'pause' || (!isPlaying && youtubePlayer.getPlayerState() === YT.PlayerState.PLAYING)) {
             youtubePlayer.pauseVideo();
         }
     } catch (error) {
@@ -302,21 +308,24 @@ function syncYouTubePlayer(action, currentTime, isPlaying) {
 }
 
 function syncDrivePlayer(action, currentTime, isPlaying) {
-    if (!drivePlayer) return;
+    if (!drivePlayer || drivePlayer.readyState < 1) return;
     
     try {
         const playerTime = drivePlayer.currentTime;
         const timeDiff = Math.abs(playerTime - currentTime);
         
-        // Seek if time difference is significant (more than 2 seconds)
-        if (timeDiff > 2) {
+        // Handle specific actions
+        if (action === 'seek' || timeDiff > 2) {
             drivePlayer.currentTime = currentTime;
         }
         
-        // Handle play/pause
-        if (isPlaying && drivePlayer.paused) {
-            drivePlayer.play().catch(err => console.log('Play prevented:', err));
-        } else if (!isPlaying && !drivePlayer.paused) {
+        // Handle play/pause with error handling
+        if (action === 'play' || (isPlaying && drivePlayer.paused)) {
+            drivePlayer.play().catch(err => {
+                console.log('Play prevented:', err);
+                showToast('Click the video to enable autoplay', 'info');
+            });
+        } else if (action === 'pause' || (!isPlaying && !drivePlayer.paused)) {
             drivePlayer.pause();
         }
     } catch (error) {
@@ -358,11 +367,32 @@ function initializeSocket() {
     socket.on('connect', () => {
         console.log('Connected to server');
         updateRoomStatus('Connected');
+        
+        // Rejoin room if we were previously connected
+        if (currentRoom && currentUser) {
+            socket.emit('joinRoom', {
+                roomCode: currentRoom.roomCode,
+                username: currentUser
+            });
+        }
     });
     
-    socket.on('disconnect', () => {
-        console.log('Disconnected from server');
+    socket.on('disconnect', (reason) => {
+        console.log('Disconnected from server:', reason);
         updateRoomStatus('Disconnected - Attempting to reconnect...', 'error');
+        
+        // Disable chat input during disconnection
+        messageInput.disabled = true;
+        sendMessageBtn.disabled = true;
+    });
+    
+    socket.on('reconnect', () => {
+        console.log('Reconnected to server');
+        showToast('Reconnected successfully!', 'success');
+        
+        // Re-enable chat input
+        messageInput.disabled = false;
+        sendMessageBtn.disabled = false;
     });
     
     socket.on('roomJoined', (data) => {
@@ -378,6 +408,7 @@ function initializeSocket() {
         if (isAdmin) {
             adminControls.style.display = 'flex';
             nonAdminMessage.style.display = 'none';
+            showToast('You are the room admin!', 'success');
         } else {
             adminControls.style.display = 'none';
             nonAdminMessage.style.display = 'flex';
@@ -471,6 +502,25 @@ changeVideoBtn.addEventListener('click', () => {
         return;
     }
     
+    // Basic URL validation
+    try {
+        new URL(newURL);
+    } catch (e) {
+        showToast('Please enter a valid URL', 'error');
+        return;
+    }
+    
+    // Check if it's a supported video URL
+    const isYouTube = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/i.test(newURL);
+    const isDrive = newURL.includes('drive.google.com');
+    
+    if (!isYouTube && !isDrive) {
+        showToast('Please enter a YouTube or Google Drive video URL', 'error');
+        return;
+    }
+    
+    showToast('Changing video...', 'info');
+    
     socket.emit('videoControl', {
         roomCode: currentRoom.roomCode,
         action: 'changeVideo',
@@ -526,6 +576,14 @@ window.addEventListener('load', () => {
     // Initialize socket connection
     initializeSocket();
     
+    // Handle visibility changes (page focus/blur)
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && socket && !socket.connected) {
+            // Page became visible and socket is disconnected, try to reconnect
+            socket.connect();
+        }
+    });
+    
     console.log('WatchTogether - Room page loaded successfully!');
 });
 
@@ -538,23 +596,27 @@ window.addEventListener('beforeunload', () => {
 
 // Periodic sync for video time (to handle manual seeking by admin)
 setInterval(() => {
-    if (isAdmin && socket && currentRoom) {
+    if (isAdmin && socket && socket.connected && currentRoom) {
         let currentTime = 0;
         
-        if (youtubePlayer && youtubePlayer.getCurrentTime) {
-            currentTime = youtubePlayer.getCurrentTime();
-        } else if (drivePlayer && !drivePlayer.paused) {
-            currentTime = drivePlayer.currentTime;
-        }
-        
-        // Only sync if there's a significant time change
-        if (Math.abs(currentTime - lastKnownTime) > 1) {
-            socket.emit('videoControl', {
-                roomCode: currentRoom.roomCode,
-                action: 'seek',
-                time: currentTime
-            });
-            lastKnownTime = currentTime;
+        try {
+            if (youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function') {
+                currentTime = youtubePlayer.getCurrentTime() || 0;
+            } else if (drivePlayer && !drivePlayer.paused && !isNaN(drivePlayer.currentTime)) {
+                currentTime = drivePlayer.currentTime;
+            }
+            
+            // Only sync if there's a significant time change and time is valid
+            if (currentTime > 0 && Math.abs(currentTime - lastKnownTime) > 1) {
+                socket.emit('videoControl', {
+                    roomCode: currentRoom.roomCode,
+                    action: 'seek',
+                    time: currentTime
+                });
+                lastKnownTime = currentTime;
+            }
+        } catch (error) {
+            console.error('Error in periodic sync:', error);
         }
     }
 }, 2000); // Check every 2 seconds

@@ -47,16 +47,24 @@ function validateVideoURL(url) {
         return { valid: false, error: 'Please enter a video URL' };
     }
 
+    // Basic URL format validation
+    try {
+        new URL(url);
+    } catch (e) {
+        return { valid: false, error: 'Please enter a valid URL format' };
+    }
+
     // Check for YouTube URLs
-    const youtubeRegex = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const youtubeRegex = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/i;
     const youtubeMatch = url.match(youtubeRegex);
     
     if (youtubeMatch && youtubeMatch[2].length === 11) {
         return { valid: true, type: 'youtube' };
     }
 
-    // Check for Google Drive URLs
-    if (url.includes('drive.google.com') && (url.includes('/file/d/') || url.includes('id='))) {
+    // Check for Google Drive URLs (more comprehensive)
+    if (url.includes('drive.google.com') && 
+        (url.includes('/file/d/') || url.includes('id=') || url.includes('open?id='))) {
         return { valid: true, type: 'drive' };
     }
 
