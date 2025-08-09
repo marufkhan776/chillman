@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WatchTogether - Watch Videos Together</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="main-card">
+            <div class="header">
+                <h1>🎬 WatchTogether</h1>
+                <p>Watch YouTube and Google Drive videos together in perfect sync</p>
+            </div>
+
+            <div class="actions">
+                <!-- Create Room Section -->
+                <div class="action-section">
+                    <h2>Create a Room</h2>
+                    <div class="form-group">
+                        <label for="videoURL">Video URL (YouTube or Google Drive):</label>
+                        <input 
+                            type="url" 
+                            id="videoURL" 
+                            placeholder="https://www.youtube.com/watch?v=... or https://drive.google.com/..."
+                            required
+                        >
+                    </div>
+                    <button id="createRoomBtn" class="btn btn-primary">
+                        <span class="btn-text">Create Room</span>
+                        <span class="btn-loading" style="display: none;">Creating...</span>
+                    </button>
+                    <div id="createRoomResult" class="result-section" style="display: none;">
+                        <div class="room-info">
+                            <p><strong>Room Code:</strong> <span id="roomCode"></span></p>
+                            <p><strong>Share Link:</strong></p>
+                            <div class="share-link-container">
+                                <input type="text" id="shareLink" readonly>
+                                <button id="copyLinkBtn" class="btn btn-secondary">Copy</button>
+                            </div>
+                            <button id="joinCreatedRoomBtn" class="btn btn-success">Join Room</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider">
+                    <span>OR</span>
+                </div>
+
+                <!-- Join Room Section -->
+                <div class="action-section">
+                    <h2>Join a Room</h2>
+                    <div class="form-group">
+                        <label for="roomCodeInput">Room Code:</label>
+                        <input 
+                            type="text" 
+                            id="roomCodeInput" 
+                            placeholder="Enter 6-character room code"
+                            maxlength="6"
+                            style="text-transform: uppercase;"
+                        >
+                    </div>
+                    <button id="joinRoomBtn" class="btn btn-primary">
+                        <span class="btn-text">Join Room</span>
+                        <span class="btn-loading" style="display: none;">Joining...</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error Messages -->
+            <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+            <!-- Instructions -->
+            <div class="instructions">
+                <h3>How it works:</h3>
+                <ol>
+                    <li><strong>Create a room:</strong> Paste a YouTube or Google Drive video URL and get a room code</li>
+                    <li><strong>Share the code:</strong> Send the room code or link to your friends</li>
+                    <li><strong>Watch together:</strong> Everyone sees the same video at the same time</li>
+                    <li><strong>Chat in real-time:</strong> Discuss the video as you watch</li>
+                </ol>
+                
+                <div class="supported-formats">
+                    <h4>Supported Video Formats:</h4>
+                    <ul>
+                        <li>✅ YouTube videos (youtube.com, youtu.be)</li>
+                        <li>✅ Google Drive public videos</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>
