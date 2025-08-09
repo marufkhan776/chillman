@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WatchTogether - Room</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container room-container">
+        <!-- Video Section -->
+        <div class="video-section">
+            <div class="video-header">
+                <div class="room-info">
+                    <span>Room: </span>
+                    <span id="roomCodeDisplay" class="room-code-display">Loading...</span>
+                </div>
+                
+                <!-- Admin Controls (only visible to admin) -->
+                <div id="adminControls" class="admin-controls" style="display: none;">
+                    <input 
+                        type="url" 
+                        id="newVideoURL" 
+                        placeholder="Paste new video URL to change video..."
+                    >
+                    <button id="changeVideoBtn">Change Video</button>
+                    <button id="copyRoomLinkBtn">Copy Room Link</button>
+                </div>
+                
+                <!-- Non-admin message -->
+                <div id="nonAdminMessage" class="admin-controls" style="display: none;">
+                    <span style="color: #ccc; font-style: italic;">Only the room admin can control the video</span>
+                    <button id="copyRoomLinkBtnNonAdmin">Copy Room Link</button>
+                </div>
+            </div>
+            
+            <div class="video-container">
+                <!-- YouTube player will be inserted here -->
+                <div id="youtubePlayer" style="display: none;"></div>
+                
+                <!-- HTML5 video player for Google Drive -->
+                <video 
+                    id="drivePlayer" 
+                    class="video-player" 
+                    controls 
+                    style="display: none;"
+                >
+                    Your browser does not support the video tag.
+                </video>
+                
+                <!-- Loading message -->
+                <div id="loadingMessage" class="loading-message">
+                    Connecting to room...
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Section -->
+        <div class="chat-section">
+            <div class="chat-header">
+                <h2>💬 Chat</h2>
+                <p id="roomStatus">Connecting...</p>
+            </div>
+
+            <!-- User List -->
+            <div class="user-list">
+                <h3>👥 Online Users (<span id="userCount">0</span>)</h3>
+                <div id="usersList" class="users">
+                    <!-- Users will be populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Chat Messages -->
+            <div id="chatMessages" class="chat-messages">
+                <!-- Messages will be populated dynamically -->
+            </div>
+
+            <!-- Chat Input -->
+            <div class="chat-input">
+                <div class="chat-input-container">
+                    <input 
+                        type="text" 
+                        id="messageInput" 
+                        placeholder="Type a message..." 
+                        maxlength="500"
+                        disabled
+                    >
+                    <button id="sendMessageBtn" disabled>Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Username Modal (shown on first join) -->
+    <div id="usernameModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Enter Your Name</h3>
+            <input type="text" id="usernameInput" placeholder="Your name" maxlength="20">
+            <button id="joinRoomWithNameBtn" class="btn btn-primary">Join Room</button>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toast" class="toast" style="display: none;"></div>
+
+    <!-- Include Socket.IO from CDN -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <!-- Include YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    
+    <!-- Room JavaScript -->
+    <script src="room.js"></script>
+</body>
+</html>
